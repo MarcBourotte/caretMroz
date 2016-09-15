@@ -1,0 +1,304 @@
+---
+title: "Binary classification with the caret R package"
+author: "Evan Muzzall"
+date: "September 14, 2016"
+output:
+  word_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+  html_document:
+    keep_md: yes
+    toc: yes
+---
+# This R code was compiled from:  
+* [Package 'caret](https://cran.r-project.org/web/packages/caret/caret.pdf)
+
+* The [caret help page](https://topepo.github.io/caret/)
+
+* Kuhn M. 2015. [A Short Introduction to the caret Package](https://cran.r-project.org/web/packages/caret/vignettes/caret.pdf).  
+
+* Kuhn M. 2013. [Predictive modeling with R and the caret package](https://www.r-project.org/nosvn/conferences/useR-2013/Tutorials/kuhn/user_caret_2up.pdf). useR! The R User Conference, July 10-12, University of Castilla-La Mancha, Albacete, Spain
+
+* Kuhn M. 2008. [Building predictive models in R using the caret package](https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=1&ved=0ahUKEwiytr_K0YjPAhVjImMKHTdwCaMQFgghMAA&url=https%3A%2F%2Fwww.jstatsoft.org%2Farticle%2Fview%2Fv028i05%2Fv28i05.pdf&usg=AFQjCNF6qKoSkwaevSrCzgHwKWOyGqnmMQ&cad=rja). J Stat Softw 28:1-26.
+
+# install packages
+```{r, eval=FALSE}
+install.packages("car")
+install.packages("caret")
+install.packages("e1071")
+install.packages("gamlss")
+install.packages("gbm")
+install.packages("kernlab")
+install.packages("plyr")
+install.packages("pROC")
+```
+```{r, eval=FALSE}
+library(caret)
+library(e1071)
+library(gamlss)
+library(gbm)
+library(kernlab)
+library(plyr)
+library(pROC)
+``` 
+
+# load the Mroz dataset
+```{r}
+library(car)
+data(Mroz)
+```
+```{r}
+str(Mroz)
+```
+See variable definitions with ?Mroz
+
+# use createDataPartition() to create a 75/25 stratified random split
+```{r}
+library(caret)
+split <- createDataPartition(Mroz$lfp, p=0.75, list=FALSE)
+training.set <- Mroz[split,]
+test.set <- Mroz[-split,]
+```
+
+# sanity check
+```{r}
+nrow(training.set) + nrow(test.set) == nrow(Mroz)
+```
+
+# train() a GBM model
+```{r, results="hide"}
+set.seed(1)
+gbm.fit1 <- train(lfp ~ ., data=training.set, method="gbm")
+```
+'.' comes from Perl's regex library and stands for "everything else"
+
+caret shows us the optimal model based on its attributes
+
+View a model summary table by calling the object
+```{r}
+gbm.fit1
+```
+
+Plot bargraph of variable relative influence with summary()
+```{r}
+summary(gbm.fit1, las=2, main="GBM relative influence")
+```
+
+# trainControl()
+### define the parameters of the control mechanism
+```{r}
+control1 <- trainControl(method="repeatedcv", repeats=5)
+```
+
+### train the model via trControl()
+```{r}
+set.seed(1)
+gbm.fit2 <- train(lfp ~ ., data=training.set, 
+	method="gbm",
+	verbose=FALSE,
+	trControl=control1)
+```
+
+model summary table
+```{r, eval=FALSE}
+gbm.fit2
+```
+bargraph of variable relative influence
+
+```{r, eval=FALSE}
+summary(gbm.fit2, las=2)
+```
+
+# model tuning within trainControl() 
+```{r}
+control2 <- trainControl(method="repeatedcv", 
+	repeats=5,
+	classProbs=TRUE,
+	summaryFunction=twoClassSummary)
+```
+
+```{r}
+set.seed(1)
+gbm.fit3 <- train(lfp ~ ., data=training.set,
+	method="gbm",
+	metric="ROC",
+	verbose=FALSE,
+	trControl=control2)
+```
+
+model summary table
+```{r, eval=FALSE}
+gbm.fit3
+```
+
+bargraph of variable relative influence
+```{r, eval=FALSE}
+summary(gbm.fit3, las=2)
+```
+
+# compare multiple models at once with expand.grid()
+```{r}
+grid <- expand.grid(n.trees=seq(100,5100, by=500),
+	interaction.depth=seq(1,3,5),
+	shrinkage=c(0.01,0.05, 0.1),
+	n.minobsinnode=10)
+```
+
+```{r}
+set.seed(1)
+gbm.fit4 <- train(lfp ~ ., data=training.set,
+	method="gbm",
+	metric="ROC",
+	tuneGrid=grid,
+	verbose=FALSE,
+	trControl=control2)
+```
+
+model summary table
+```{r}
+gbm.fit4
+```
+
+bargraph of variable relative influence
+```{r}
+summary(gbm.fit4, las=2)
+```
+
+# ggplot line graph
+```{r}
+ggplot(gbm.fit4) + theme_grey() + ggtitle("Model comparisons")
+```
+
+save as .PNG
+```{r, eval=FALSE}
+png(width=9, heigh=6, unit="in", res=620)
+ggplot(gbm.fit4) + theme_grey() + ggtitle("Model comparisons")
+dev.off()
+```
+
+# generate GBM predicted values and probabilities with with predict()
+
+predicted values
+```{r}
+set.seed(1)
+gbm.pred <- predict(gbm.fit4, test.set)
+gbm.prob <- predict(gbm.fit4, test.set, type="prob")
+```
+
+# view GBM final model
+```{r}
+gbm.cm <- confusionMatrix(gbm.pred, test.set$lfp)
+gbm.cm
+```
+
+# plot GBM ROC curve
+```{r}
+library(pROC)
+rocCurve <- roc(response=test.set$lfp,
+	predictor = gbm.prob[, "yes"],
+	levels = rev(levels(test.set$lfp)),
+	auc=TRUE, ci=TRUE)
+```
+
+```{r}
+plot(rocCurve, main="GBM")
+```
+
+# fit a second model SVM
+```{r}
+grid2 <- expand.grid(sigma=0.05, C=c(0.01, 0.05, 0.10))
+set.seed(1)
+svm.fit1 <- train(lfp ~ ., data=training.set,
+	method="svmRadial",
+	trControl=control2,
+	tuneGrid=grid2,
+	metric="ROC")
+```
+
+model summary
+```{r}
+svm.fit1
+```
+
+# plot SVM cost
+```{r}
+plot(svm.fit1, las=2, main="SVM cost")		
+```
+
+# generate SVM predicted values and probabilities
+```{r}
+set.seed(1)
+svm.pred <- predict(svm.fit1, test.set)
+svm.prob <- predict(svm.fit1, test.set, type="prob")
+confusionMatrix(svm.fit1)
+```
+
+# Plot SVM ROC curve
+```{r}
+rocCurve2 <- roc(response=test.set$lfp,
+	predictor=svm.prob[, "yes"],
+	levels=rev(levels(test.set$lfp)),
+	auc=TRUE, ci=TRUE)
+plot(rocCurve2, main="SVM")
+```
+
+# resample the GBM and SVM models
+```{r}
+set.seed(1)
+rsmpl <- resamples(list(GBM=gbm.fit4, SVM=svm.fit1))
+rsmpl
+```
+
+five-number summary between the SVM and GBM models
+```{r}
+summary(rsmpl, resamples=final)
+```
+
+# visualize with trellis and dotplots  
+```{r, echo=TRUE}
+library(lattice)
+bwplot(rsmpl, main="GBM vs. SVM model comparisons")
+```
+save as .PNG
+```{r, eval=FALSE}
+png(width=6, height=6, unit="in", res=720)
+bwplot(rsmpl, main="Plot of GBM v. SVM models")
+dev.off()
+```
+
+```{r}
+dotplot(rsmpl, metric="ROC", main="Simple dotplot")
+```
+save as .PNG
+```{r}
+png(width=6, height=6, unit="in", res=720)
+dotplot(rsmpl, metric="ROC", main="Simple dotplot")
+dev.off()
+```
+
+# plot GBM and SCM ROC curves together
+
+Plot results
+```{r, echo=TRUE, fig.width=9, fig.height=6}
+par(mfrow=c(1,2))
+plot(rocCurve, print.thres=0.7181, col="red", col.main="red", col.lab="black", main="GBM")
+plot(rocCurve2, print.thres=0.6864, col="blue", col.main="blue", col.lab="black", main="SVM")
+```
+Save as .PNG
+```{r, eval=FALSE}
+png(width=12, height=6, unit="in", res=720)
+par(mfrow=c(1,2))
+plot(rocCurve, print.thres=0.7181, col="red", col.main="red", col.lab="black", main="GBM")
+plot(rocCurve2, print.thres=0.6864, col="blue", col.main="blue", col.lab="black", main="SVM")
+dev.off()
+```
+
+
+# t-test to compare p-values of AUC differences
+````{r}
+set.seed(1)
+difValues <- diff(rsmpl)
+difValues
+summary(difValues)
+```

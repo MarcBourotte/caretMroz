@@ -3,12 +3,12 @@ title: "Binary classification with the caret R package"
 author: "Evan Muzzall"
 date: "September 14, 2016"
 output:
-  word_document:
+  html_document:
+    keep_md: yes
     toc: yes
   pdf_document:
     toc: yes
-  html_document:
-    keep_md: yes
+  word_document:
     toc: yes
 ---
 # This R code was compiled from:  
@@ -140,7 +140,7 @@ summary(gbm.fit3, las=2)
 # compare multiple models at once with expand.grid()
 ```{r}
 grid <- expand.grid(n.trees=seq(100,5100, by=500),
-	interaction.depth=seq(1,3,5),
+	interaction.depth=c(1,3,5),
 	shrinkage=c(0.01,0.05, 0.1),
 	n.minobsinnode=10)
 ```
